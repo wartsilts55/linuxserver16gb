@@ -1,0 +1,57 @@
+name: Linux SSH Server Setup
+
+on:
+  workflow_dispatch:        # Manual trigger only (removed automatic scheduling)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Setup OpenSSH Server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo systemctl restart ssh
+
+      - name: 3. Create User with Root Access
+        run: |
+          sudo useradd -m -s /bin/bash saeed || true
+          echo "saeed:saeed@9911" | sudo chpasswd
+          sudo usermod -aG sudo saeed
+          echo "saeed ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/saeed
+          
+          sudo mkdir -p /home/saeed/workspace
+          sudo chown -R saeed:saeed /home/saeed/workspace
+
+      - name: 4. Connect Tailscale VPN & Show Access Info
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="cynet-linux-ssh"
+          
+          TS_IP=$(tailscale ip -4)
+          
+          echo "=================================================="
+          echo "  >>> LINUX SSH SERVER INFO <<<"
+          echo "  Tailscale IP  : $TS_IP"
+          echo "  Username      : saeed"
+          echo "  Password      : saeed@9911"
+          echo "  ------------------------------------------------"
+          echo "  💻 Connect via Terminal:"
+          echo "  >> ssh saeed@$TS_IP"
+          echo "=================================================="
+
+      - name: 5. Keep Workflow Alive (Maximum Duration)
+        run: |
+          for i in {1..359}; do
+            sleep 60
+            echo "[${i}/359] Server is active... (${i} minutes elapsed)"
